@@ -12,6 +12,7 @@ const NAVEGACION = [
   { href: "/movimientos", texto: "Movimientos" },
   { href: "/fijos", texto: "Fijos" },
   { href: "/proyeccion", texto: "Proyección" },
+  { href: "/ajustes", texto: "Ajustes" },
 ];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

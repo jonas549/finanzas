@@ -36,6 +36,7 @@ function revalidarTodo() {
   revalidatePath("/movimientos");
   revalidatePath("/fijos");
   revalidatePath("/proyeccion");
+  revalidatePath("/ajustes");
 }
 
 // ---------------------------------------------------------------------------
@@ -143,6 +144,134 @@ export async function eliminarRecurrente(formData: FormData): Promise<void> {
 export async function guardarMeta(formData: FormData): Promise<void> {
   const montoTexto = texto(formData, "meta").replace(",", ".");
   if (!/^\d+(\.\d+)?$/.test(montoTexto)) return;
-  await prisma.ajustes.update({ where: { id: 1 }, data: { metaAhorro: montoTexto } });
-  revalidatePath("/proyeccion");
+  // upsert y no update: la fila puede no existir todavía en una base virgen.
+  await prisma.ajustes.upsert({
+    where: { id: 1 },
+    update: { metaAhorro: montoTexto },
+    create: {
+      id: 1,
+      saldoInicial: "0",
+      fechaCorte: new Date(Date.UTC(new Date().getUTCFullYear(), 0, 1)),
+      metaAhorro: montoTexto,
+    },
+  });
+  revalidarTodo();
+}
+
+// ---------------------------------------------------------------------------
+// Ajustes
+// ---------------------------------------------------------------------------
+
+export async function guardarAjustes(
+  _prev: EstadoFormulario,
+  formData: FormData,
+): Promise<EstadoFormulario> {
+  try {
+    const saldoTexto = texto(formData, "saldoInicial").replace(",", ".");
+    if (!/^-?\d+(\.\d+)?$/.test(saldoTexto)) {
+      throw new ErrorValidacion("El saldo base debe ser un número.", "saldoInicial");
+    }
+
+    const metaTexto = texto(formData, "metaAhorro").replace(",", ".");
+    if (metaTexto && !/^\d+(\.\d+)?$/.test(metaTexto)) {
+      throw new ErrorValidacion("La meta debe ser un número positivo.", "metaAhorro");
+    }
+
+    const datos = {
+      saldoInicial: saldoTexto,
+      fechaCorte: fechaDesdeInput(formData.get("fechaCorte")),
+      metaAhorro: metaTexto || null,
+    };
+
+    await prisma.ajustes.upsert({
+      where: { id: 1 },
+      update: datos,
+      create: { id: 1, ...datos },
+    });
+
+    revalidarTodo();
+    return { ok: true, mensaje: "Ajustes guardados." };
+  } catch (e) {
+    return manejarError(e);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Categorías
+// ---------------------------------------------------------------------------
+
+/// "" (sin ámbito) es válido: la categoría sirve para ingresos y gastos.
+function ambitoDeForm(formData: FormData): string | null {
+  const valor = texto(formData, "ambito");
+  if (valor === "INGRESO" || valor === "GASTO") return valor;
+  return null;
+}
+
+function esNombreDuplicado(e: unknown): boolean {
+  return typeof e === "object" && e !== null && "code" in e && e.code === "P2002";
+}
+
+export async function crearCategoria(
+  _prev: EstadoFormulario,
+  formData: FormData,
+): Promise<EstadoFormulario> {
+  const nombre = texto(formData, "nombre");
+  try {
+    if (!nombre) throw new ErrorValidacion("El nombre es obligatorio.", "nombre");
+
+    await prisma.categoria.create({
+      data: {
+        nombre,
+        ambito: ambitoDeForm(formData),
+        orden: Number(texto(formData, "orden")) || 0,
+      },
+    });
+
+    revalidarTodo();
+    return { ok: true, mensaje: `"${nombre}" creada.` };
+  } catch (e) {
+    if (esNombreDuplicado(e)) {
+      return { ok: false, mensaje: `Ya existe una categoría llamada "${nombre}".`, campo: "nombre" };
+    }
+    return manejarError(e);
+  }
+}
+
+export async function actualizarCategoria(
+  _prev: EstadoFormulario,
+  formData: FormData,
+): Promise<EstadoFormulario> {
+  const nombre = texto(formData, "nombre");
+  try {
+    const id = texto(formData, "id");
+    if (!id) throw new ErrorValidacion("Falta el identificador.", "id");
+    if (!nombre) throw new ErrorValidacion("El nombre es obligatorio.", "nombre");
+
+    await prisma.categoria.update({
+      where: { id },
+      data: {
+        nombre,
+        ambito: ambitoDeForm(formData),
+        orden: Number(texto(formData, "orden")) || 0,
+        activa: formData.get("activa") !== null,
+      },
+    });
+
+    revalidarTodo();
+    return { ok: true, mensaje: "Guardada." };
+  } catch (e) {
+    if (esNombreDuplicado(e)) {
+      return { ok: false, mensaje: `Ya existe una categoría llamada "${nombre}".`, campo: "nombre" };
+    }
+    return manejarError(e);
+  }
+}
+
+/// Los movimientos y fijos que la usaban quedan sin categoría (onDelete: SetNull),
+/// no se borran.
+export async function eliminarCategoria(formData: FormData): Promise<void> {
+  const id = texto(formData, "id");
+  if (!id) return;
+  await prisma.categoria.delete({ where: { id } });
+  revalidarTodo();
 }

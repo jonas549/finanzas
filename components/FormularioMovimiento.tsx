@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState, useEffect, useRef, useState } from "react";
 import { crearMovimiento } from "@/app/actions";
 import { ESTADO_INICIAL } from "@/lib/estado-formulario";
@@ -98,6 +99,16 @@ export function FormularioMovimiento({ categorias }: { categorias: CategoriaList
             </option>
           ))}
         </select>
+        {visibles.length === 0 && (
+          <p className="mt-1 text-xs text-suave">
+            No hay categorías para {ambito === "INGRESO" ? "ingresos" : "gastos"} todavía. Puedes
+            registrar igual y crearlas en{" "}
+            <Link href="/ajustes" className="text-acento hover:underline">
+              Ajustes
+            </Link>
+            .
+          </p>
+        )}
       </div>
 
       <div>

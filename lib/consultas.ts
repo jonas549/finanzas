@@ -52,12 +52,36 @@ export function etiquetaMes(anio: number, mes: number): string {
 // Ajustes
 // ---------------------------------------------------------------------------
 
-export async function obtenerAjustes() {
-  const ajustes = await prisma.ajustes.findUnique({ where: { id: 1 } });
-  if (!ajustes) {
-    throw new Error("No hay Ajustes configurados. Corre `npm run db:seed`.");
+export type Ajustes = {
+  saldoInicial: Prisma.Decimal;
+  fechaCorte: Date;
+  metaAhorro: Prisma.Decimal | null;
+  /// false cuando la fila todavía no existe y esto es sólo un valor por defecto.
+  persistido: boolean;
+};
+
+/**
+ * Nunca lanza ni escribe: si la fila no existe devuelve un default en memoria.
+ * Así una base recién creada muestra ceros en vez de reventar todas las
+ * páginas, y la fila se crea recién cuando se guarda desde /ajustes.
+ */
+export async function obtenerAjustes(): Promise<Ajustes> {
+  const fila = await prisma.ajustes.findUnique({ where: { id: 1 } });
+  if (fila) {
+    return {
+      saldoInicial: fila.saldoInicial,
+      fechaCorte: fila.fechaCorte,
+      metaAhorro: fila.metaAhorro,
+      persistido: true,
+    };
   }
-  return ajustes;
+  return {
+    saldoInicial: CERO,
+    // Epoch: sin fecha de corte configurada no se descarta ningún movimiento.
+    fechaCorte: new Date(0),
+    metaAhorro: null,
+    persistido: false,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -285,6 +309,30 @@ export async function listarCategorias(): Promise<CategoriaListada[]> {
     orderBy: [{ ambito: "asc" }, { orden: "asc" }],
     select: { id: true, nombre: true, ambito: true },
   });
+}
+
+export type CategoriaAdministrable = CategoriaListada & {
+  orden: number;
+  activa: boolean;
+  /// Cuántos registros la usan: sirve para avisar antes de eliminarla.
+  usos: number;
+};
+
+/// Incluye las inactivas — es la vista de administración, no un selector.
+export async function listarTodasCategorias(): Promise<CategoriaAdministrable[]> {
+  const filas = await prisma.categoria.findMany({
+    orderBy: [{ ambito: "asc" }, { orden: "asc" }, { nombre: "asc" }],
+    include: { _count: { select: { movimientos: true, recurrentes: true } } },
+  });
+
+  return filas.map((c) => ({
+    id: c.id,
+    nombre: c.nombre,
+    ambito: c.ambito,
+    orden: c.orden,
+    activa: c.activa,
+    usos: c._count.movimientos + c._count.recurrentes,
+  }));
 }
 
 // ---------------------------------------------------------------------------

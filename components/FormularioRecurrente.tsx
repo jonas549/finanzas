@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState, useEffect, useRef } from "react";
 import { crearRecurrente } from "@/app/actions";
 import { ESTADO_INICIAL } from "@/lib/estado-formulario";
@@ -116,6 +117,15 @@ export function FormularioRecurrente({ categorias }: { categorias: CategoriaList
             </option>
           ))}
         </select>
+        {categorias.length === 0 && (
+          <p className="mt-1 text-xs text-suave">
+            No hay categorías todavía. Créalas en{" "}
+            <Link href="/ajustes" className="text-acento hover:underline">
+              Ajustes
+            </Link>
+            .
+          </p>
+        )}
       </div>
 
       <div className="flex items-center gap-3">
