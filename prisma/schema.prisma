@@ -2,12 +2,13 @@
 //
 // TODO el sistema es en dólares. No hay monedas, ni tasas, ni conversiones.
 //
-// Local: SQLite. Producción (Vercel): Postgres.
-// Para migrar sólo cambia `provider = "postgresql"` aquí y el driver adapter
-// en lib/prisma.ts. No hay tipos ni features exclusivos de SQLite en uso.
+// PostgreSQL en local y en producción. La URL sale de DATABASE_URL, que
+// prisma.config.ts lee del entorno; no hay credenciales en este archivo.
 //
-// NOTA: SQLite no soporta `enum`. Los campos discriminadores son String y sus
-// valores válidos viven en lib/tipos.ts (union types de TypeScript).
+// Los campos discriminadores (`tipo`, `ambito`) son String y no enum: sus
+// valores válidos viven en lib/tipos.ts. Es herencia de cuando esto corría
+// sobre SQLite, que no soporta enums. Convertirlos a enum de Postgres es una
+// mejora posible, pero implica migración de datos y tocar lib/tipos.ts.
 
 generator client {
   provider = "prisma-client"
@@ -15,7 +16,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
 }
 
 // ---------------------------------------------------------------------------
