@@ -1,0 +1,131 @@
+// Finanzas personales — schema Prisma
+//
+// TODO el sistema es en dólares. No hay monedas, ni tasas, ni conversiones.
+//
+// Local: SQLite. Producción (Vercel): Postgres.
+// Para migrar sólo cambia `provider = "postgresql"` aquí y el driver adapter
+// en lib/prisma.ts. No hay tipos ni features exclusivos de SQLite en uso.
+//
+// NOTA: SQLite no soporta `enum`. Los campos discriminadores son String y sus
+// valores válidos viven en lib/tipos.ts (union types de TypeScript).
+
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// ---------------------------------------------------------------------------
+// Configuración (fila única, id = 1)
+// ---------------------------------------------------------------------------
+
+/// Punto de partida del sistema:
+///   saldo = saldoInicial + SUM(ingresos) - SUM(gastos)  desde fechaCorte
+model Ajustes {
+  id Int @id @default(1)
+
+  /// Ahorros de arranque.
+  saldoInicial Decimal
+  /// Fecha de corte: los movimientos anteriores a esta fecha se ignoran.
+  fechaCorte   DateTime
+
+  /// Meta de ahorro por defecto para la proyección. Opcional.
+  metaAhorro Decimal?
+
+  creadoEn      DateTime @default(now())
+  actualizadoEn DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// Catálogo
+// ---------------------------------------------------------------------------
+
+model Categoria {
+  id     String  @id @default(cuid())
+  nombre String  @unique
+  /// Ámbito: "INGRESO" | "GASTO" | null (sirve para ambos).
+  ambito String?
+  /// Orden de aparición en selectores.
+  orden  Int     @default(0)
+  activa Boolean @default(true)
+
+  movimientos Movimiento[]
+  recurrentes Recurrente[]
+
+  @@index([activa, orden])
+}
+
+// ---------------------------------------------------------------------------
+// Ingresos y gastos fijos
+// ---------------------------------------------------------------------------
+
+/// Ingresos y gastos fijos. Un solo modelo con discriminador `tipo` porque
+/// comparten forma exacta y la proyección los suma en una sola consulta.
+///
+/// Impacto mensual = monto * frecuenciaPorMes, con signo según `tipo`.
+model Recurrente {
+  id     String @id @default(cuid())
+  /// "INGRESO_FIJO" | "GASTO_FIJO"
+  tipo   String
+  nombre String
+
+  /// Monto de UNA ocurrencia. Siempre positivo.
+  monto Decimal
+
+  /// Cuántas veces ocurre al mes (mensual = 1, quincenal = 2, semanal = 4).
+  frecuenciaPorMes Int @default(1)
+  /// Día del mes estimado de la primera ocurrencia (1-31).
+  diaEstimado      Int
+
+  activo Boolean @default(true)
+  notas  String?
+
+  categoriaId String?
+  categoria   Categoria? @relation(fields: [categoriaId], references: [id], onDelete: SetNull)
+
+  creadoEn      DateTime @default(now())
+  actualizadoEn DateTime @updatedAt
+
+  @@index([tipo, activo])
+  @@index([categoriaId])
+}
+
+// ---------------------------------------------------------------------------
+// Movimientos
+// ---------------------------------------------------------------------------
+
+/// Todo evento puntual de dinero. `monto` es siempre positivo; el signo lo
+/// determina `tipo`:
+///
+///   INGRESO_EXTRA -> suma al saldo
+///   GASTO_DIARIO  -> resta del saldo
+///   VENTA         -> resta del saldo (motivo obligatorio)
+///
+/// No se persiste ningún campo derivado: el signo se deriva de `tipo` y el
+/// saldo sale de un groupBy. Ver lib/consultas.ts.
+model Movimiento {
+  id String @id @default(cuid())
+
+  /// "INGRESO_EXTRA" | "GASTO_DIARIO" | "VENTA"
+  tipo  String
+  fecha DateTime
+
+  /// Siempre positivo.
+  monto Decimal
+
+  /// Motivo / descripción. Obligatorio en VENTA (validado en la app).
+  motivo String?
+
+  categoriaId String?
+  categoria   Categoria? @relation(fields: [categoriaId], references: [id], onDelete: SetNull)
+
+  creadoEn      DateTime @default(now())
+  actualizadoEn DateTime @updatedAt
+
+  @@index([fecha])
+  @@index([tipo, fecha])
+  @@index([categoriaId, fecha])
+}

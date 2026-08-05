@@ -1,0 +1,83 @@
+@import "tailwindcss";
+
+:root {
+  --fondo: #f6f7f9;
+  --superficie: #ffffff;
+  --borde: #e3e6ea;
+  --texto: #16181d;
+  --suave: #6b7280;
+  --acento: #2563eb;
+  --positivo: #15803d;
+  --negativo: #b91c1c;
+  --positivo-fondo: #dcfce7;
+  --negativo-fondo: #fee2e2;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fondo: #0c0d10;
+    --superficie: #15171c;
+    --borde: #262a32;
+    --texto: #e8eaed;
+    --suave: #9199a5;
+    --acento: #60a5fa;
+    --positivo: #4ade80;
+    --negativo: #f87171;
+    --positivo-fondo: #14311f;
+    --negativo-fondo: #3a1717;
+  }
+}
+
+@theme inline {
+  --color-fondo: var(--fondo);
+  --color-superficie: var(--superficie);
+  --color-borde: var(--borde);
+  --color-texto: var(--texto);
+  --color-suave: var(--suave);
+  --color-acento: var(--acento);
+  --color-positivo: var(--positivo);
+  --color-negativo: var(--negativo);
+  --color-positivo-fondo: var(--positivo-fondo);
+  --color-negativo-fondo: var(--negativo-fondo);
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Code", "Segoe UI Mono", monospace;
+}
+
+body {
+  background: var(--fondo);
+  color: var(--texto);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Los montos se leen en columna: tabulares para que los dígitos alineen. */
+.cifra {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Controles de formulario: un solo lugar en vez de repetir la clase larga. */
+.campo {
+  width: 100%;
+  border-radius: 0.5rem;
+  border: 1px solid var(--borde);
+  background: var(--superficie);
+  color: var(--texto);
+  padding: 0.5rem 0.7rem;
+  font-size: 0.875rem;
+  outline: none;
+}
+
+.campo:focus-visible {
+  border-color: var(--acento);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--acento) 25%, transparent);
+}
+
+.etiqueta {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--suave);
+  margin-bottom: 0.35rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
