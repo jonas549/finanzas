@@ -1,7 +1,8 @@
 "use client";
 
 import { useActionState, useEffect, useRef, useState } from "react";
-import { crearMovimiento, ESTADO_INICIAL } from "@/app/actions";
+import { crearMovimiento } from "@/app/actions";
+import { ESTADO_INICIAL } from "@/lib/estado-formulario";
 import { fechaInput } from "@/lib/formato";
 import { ambitoDe, ETIQUETAS_TIPO_MOVIMIENTO, TIPOS_MOVIMIENTO, type TipoMovimiento } from "@/lib/tipos";
 import type { CategoriaListada } from "@/lib/consultas";

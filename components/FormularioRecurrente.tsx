@@ -1,7 +1,8 @@
 "use client";
 
 import { useActionState, useEffect, useRef } from "react";
-import { crearRecurrente, ESTADO_INICIAL } from "@/app/actions";
+import { crearRecurrente } from "@/app/actions";
+import { ESTADO_INICIAL } from "@/lib/estado-formulario";
 import { ETIQUETAS_TIPO_RECURRENTE, TIPOS_RECURRENTE } from "@/lib/tipos";
 import type { CategoriaListada } from "@/lib/consultas";
 

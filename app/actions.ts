@@ -5,14 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { ErrorValidacion, validarMovimiento } from "@/lib/movimientos";
 import { validarRecurrente } from "@/lib/recurrentes";
 import { esTipoMovimiento, esTipoRecurrente } from "@/lib/tipos";
-
-export type EstadoFormulario = {
-  ok: boolean;
-  mensaje?: string;
-  campo?: string;
-};
-
-export const ESTADO_INICIAL: EstadoFormulario = { ok: false };
+import type { EstadoFormulario } from "@/lib/estado-formulario";
 
 /// Las fechas del <input type="date"> vienen como "YYYY-MM-DD" sin huso.
 /// Se anclan a mediodía UTC para que ningún desfase las corra de día.
