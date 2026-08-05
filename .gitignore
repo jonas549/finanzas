@@ -41,6 +41,12 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# skills de otros agentes: `prisma init` las instala para varias herramientas.
+# Sólo se usa Claude Code, y en Windows las tres carpetas son junctions al mismo
+# contenido — borrar una se lleva los archivos de las otras.
+/.windsurf
+/.agents
+
 # prisma
 /lib/generated
 /prisma/*.db
