@@ -339,6 +339,40 @@ export async function listarTodasCategorias(): Promise<CategoriaAdministrable[]>
 // Fijos y proyección
 // ---------------------------------------------------------------------------
 
+/**
+ * Cuántas veces se cobró (o pagó) cada fijo dentro de un mes, y por cuánto.
+ *
+ * Es la consulta que sostiene todo lo demás: un movimiento con `recurrenteId`
+ * es la prueba de que ese fijo YA ocurrió, así que deja de estar pendiente.
+ * Sin esto no habría forma de distinguir el salario de este mes de cualquier
+ * otro ingreso, y el fijo se contaría dos veces (una en el saldo real, otra
+ * como algo que todavía va a entrar).
+ */
+export async function cobrosDelMes(
+  anio: number,
+  mes: number,
+): Promise<Map<string, { veces: number; total: number }>> {
+  const grupos = await prisma.movimiento.groupBy({
+    by: ["recurrenteId"],
+    _sum: { monto: true },
+    _count: { _all: true },
+    where: {
+      recurrenteId: { not: null },
+      fecha: { gte: inicioDeMes(anio, mes), lt: finDeMes(anio, mes) },
+    },
+  });
+
+  const porId = new Map<string, { veces: number; total: number }>();
+  for (const g of grupos) {
+    if (!g.recurrenteId) continue;
+    porId.set(g.recurrenteId, {
+      veces: g._count._all,
+      total: centavos(g._sum.monto ?? CERO),
+    });
+  }
+  return porId;
+}
+
 export type RecurrenteListado = {
   id: string;
   tipo: string;
@@ -348,29 +382,61 @@ export type RecurrenteListado = {
   diaEstimado: number;
   activo: boolean;
   notas: string | null;
+  categoriaId: string | null;
   categoriaNombre: string | null;
   /// monto * frecuenciaPorMes, sin signo.
   totalMensual: number;
+  /// Ocurrencias ya registradas este mes (movimientos con este `recurrenteId`).
+  vecesEsteMes: number;
+  /// Lo efectivamente cobrado/pagado este mes, que puede diferir de `monto`.
+  totalEsteMes: number;
+  /// true cuando ya se registraron todas las ocurrencias del mes.
+  completoEsteMes: boolean;
+  /// Lo que todavía falta que ocurra este mes, a monto teórico.
+  pendienteEsteMes: number;
 };
 
-export async function listarRecurrentes(): Promise<RecurrenteListado[]> {
-  const filas = await prisma.recurrente.findMany({
-    orderBy: [{ tipo: "asc" }, { diaEstimado: "asc" }],
-    include: { categoria: { select: { nombre: true } } },
-  });
+/// Las cifras "de este mes" son del mes en curso salvo que se pida otro.
+export async function listarRecurrentes(
+  anio?: number,
+  mes?: number,
+): Promise<RecurrenteListado[]> {
+  const actual = mesActual();
+  const a = anio ?? actual.anio;
+  const m = mes ?? actual.mes;
 
-  return filas.map((r) => ({
-    id: r.id,
-    tipo: r.tipo,
-    nombre: r.nombre,
-    monto: centavos(r.monto),
-    frecuenciaPorMes: r.frecuenciaPorMes,
-    diaEstimado: r.diaEstimado,
-    activo: r.activo,
-    notas: r.notas,
-    categoriaNombre: r.categoria?.nombre ?? null,
-    totalMensual: centavos(r.monto.mul(r.frecuenciaPorMes)),
-  }));
+  const [filas, cobros] = await Promise.all([
+    prisma.recurrente.findMany({
+      orderBy: [{ tipo: "asc" }, { diaEstimado: "asc" }],
+      include: { categoria: { select: { nombre: true } } },
+    }),
+    cobrosDelMes(a, m),
+  ]);
+
+  return filas.map((r) => {
+    const cobro = cobros.get(r.id);
+    const veces = cobro?.veces ?? 0;
+    // Registrar de más no vuelve negativo lo pendiente: se topa en cero.
+    const restantes = Math.max(r.frecuenciaPorMes - veces, 0);
+
+    return {
+      id: r.id,
+      tipo: r.tipo,
+      nombre: r.nombre,
+      monto: centavos(r.monto),
+      frecuenciaPorMes: r.frecuenciaPorMes,
+      diaEstimado: r.diaEstimado,
+      activo: r.activo,
+      notas: r.notas,
+      categoriaId: r.categoriaId,
+      categoriaNombre: r.categoria?.nombre ?? null,
+      totalMensual: centavos(r.monto.mul(r.frecuenciaPorMes)),
+      vecesEsteMes: veces,
+      totalEsteMes: cobro?.total ?? 0,
+      completoEsteMes: restantes === 0,
+      pendienteEsteMes: centavos(r.monto.mul(restantes)),
+    };
+  });
 }
 
 export type ResumenFijos = {
@@ -380,6 +446,8 @@ export type ResumenFijos = {
   neto: number;
 };
 
+/// El mes teórico completo, sin descontar lo ya cobrado. Es lo que corresponde
+/// a un mes futuro; para el mes en curso hay que usar `pendienteDelMes`.
 export async function resumenFijos(): Promise<ResumenFijos> {
   const activos = await prisma.recurrente.findMany({
     where: { activo: true },
@@ -401,6 +469,65 @@ export async function resumenFijos(): Promise<ResumenFijos> {
   };
 }
 
+export type PendienteMes = {
+  /// Ingresos fijos que todavía NO se registraron este mes.
+  ingresos: number;
+  /// Gastos fijos que todavía NO se registraron este mes.
+  gastos: number;
+  neto: number;
+  /// Cuántos fijos activos ya están saldados este mes.
+  fijosSaldados: number;
+};
+
+/**
+ * Lo que le queda por ocurrir al mes en curso: los fijos activos MENOS los que
+ * ya se registraron como movimiento.
+ *
+ * Éste es el único lugar donde fijos y movimientos se suman entre sí, y por eso
+ * es el único donde puede haber doble conteo. La resta por `recurrenteId` es lo
+ * que lo impide: el salario cobrado ya vive en `saldoActual`, así que sale de
+ * lo pendiente en vez de sumarse otra vez.
+ *
+ * `resumenFijos` sigue devolviendo el mes teórico completo — es lo correcto
+ * para los meses futuros, donde nada ocurrió todavía.
+ */
+export async function pendienteDelMes(anio?: number, mes?: number): Promise<PendienteMes> {
+  const actual = mesActual();
+  const a = anio ?? actual.anio;
+  const m = mes ?? actual.mes;
+
+  const [activos, cobros] = await Promise.all([
+    prisma.recurrente.findMany({
+      where: { activo: true },
+      select: { id: true, tipo: true, monto: true, frecuenciaPorMes: true },
+    }),
+    cobrosDelMes(a, m),
+  ]);
+
+  let ingresos = CERO;
+  let gastos = CERO;
+  let fijosSaldados = 0;
+
+  for (const r of activos) {
+    const veces = cobros.get(r.id)?.veces ?? 0;
+    const restantes = Math.max(r.frecuenciaPorMes - veces, 0);
+    if (restantes === 0) {
+      fijosSaldados++;
+      continue;
+    }
+    const porVenir = r.monto.mul(restantes);
+    if (r.tipo === "INGRESO_FIJO") ingresos = ingresos.plus(porVenir);
+    else gastos = gastos.plus(porVenir);
+  }
+
+  return {
+    ingresos: centavos(ingresos),
+    gastos: centavos(gastos),
+    neto: centavos(ingresos.minus(gastos)),
+    fijosSaldados,
+  };
+}
+
 export type FilaProyeccion = {
   anio: number;
   mes: number;
@@ -409,26 +536,50 @@ export type FilaProyeccion = {
   gastos: number;
   neto: number;
   saldoFin: number;
+  /// true sólo en la primera fila: el mes en curso, ya empezado.
+  enCurso: boolean;
 };
 
 /**
  * Proyecta el saldo mes a mes asumiendo que sólo ocurren los fijos activos.
- * La fila 1 es el próximo mes completo; el mes en curso no se re-proyecta
- * porque su saldo ya está reflejado en `saldoActual`.
+ *
+ * La primera fila es el mes EN CURSO y no usa los fijos completos sino lo que
+ * queda por ocurrir (`pendienteDelMes`): lo ya cobrado está dentro de
+ * `saldoActual` y volver a sumarlo lo contaría dos veces. Las `meses` filas
+ * siguientes son meses completos, donde el fijo entero sí está por ocurrir.
  */
 export async function proyeccion(meses: number): Promise<{
   saldoActual: number;
   fijos: ResumenFijos;
+  pendiente: PendienteMes;
+  /// Saldo estimado al cierre del mes en curso.
+  saldoCierreMes: number;
   filas: FilaProyeccion[];
 }> {
   const cantidad = Math.min(Math.max(Math.trunc(meses), 1), 120);
-  const [saldo, fijos] = await Promise.all([saldoActual(), resumenFijos()]);
+  const [saldo, fijos, pendiente] = await Promise.all([
+    saldoActual(),
+    resumenFijos(),
+    pendienteDelMes(),
+  ]);
 
   const neto = new Decimal(fijos.neto);
   const { anio, mes } = mesActual();
 
-  let acumulado = new Decimal(saldo);
-  const filas: FilaProyeccion[] = [];
+  let acumulado = new Decimal(saldo).plus(pendiente.neto);
+  const filas: FilaProyeccion[] = [
+    {
+      anio,
+      mes,
+      etiqueta: etiquetaMes(anio, mes),
+      ingresos: pendiente.ingresos,
+      gastos: pendiente.gastos,
+      neto: pendiente.neto,
+      saldoFin: centavos(acumulado),
+      enCurso: true,
+    },
+  ];
+
   for (let i = 1; i <= cantidad; i++) {
     acumulado = acumulado.plus(neto);
     const d = new Date(Date.UTC(anio, mes + i, 1));
@@ -440,10 +591,17 @@ export async function proyeccion(meses: number): Promise<{
       gastos: fijos.gastos,
       neto: fijos.neto,
       saldoFin: centavos(acumulado),
+      enCurso: false,
     });
   }
 
-  return { saldoActual: saldo, fijos, filas };
+  return {
+    saldoActual: saldo,
+    fijos,
+    pendiente,
+    saldoCierreMes: filas[0].saldoFin,
+    filas,
+  };
 }
 
 export type ResultadoMeta = {
@@ -462,7 +620,11 @@ export type ResultadoMeta = {
 
 export async function mesesParaMeta(monto: number | string): Promise<ResultadoMeta> {
   const meta = new Decimal(monto);
-  const [saldo, fijos] = await Promise.all([saldoActual(), resumenFijos()]);
+  const [saldo, fijos, pendiente] = await Promise.all([
+    saldoActual(),
+    resumenFijos(),
+    pendienteDelMes(),
+  ]);
 
   const saldoDec = new Decimal(saldo);
   const neto = new Decimal(fijos.neto);
@@ -479,20 +641,29 @@ export async function mesesParaMeta(monto: number | string): Promise<ResultadoMe
     return { ...base, meses: 0, alcanzada: true, inalcanzable: false, fechaEstimada: null };
   }
 
-  // Sin excedente mensual el saldo no crece: la meta no llega nunca.
+  const { anio, mes } = mesActual();
+  const enMeses = (n: number) => new Date(Date.UTC(anio, mes + n, 1)).toISOString();
+
+  // El primer mes aporta sólo lo que le queda por ocurrir, no el fijo entero:
+  // lo ya cobrado está dentro de `saldo` y sumarlo otra vez lo contaría dos
+  // veces. Del segundo mes en adelante sí entra el neto mensual completo.
+  const cierreMes = saldoDec.plus(pendiente.neto);
+  if (cierreMes.gte(meta)) {
+    return { ...base, meses: 1, alcanzada: false, inalcanzable: false, fechaEstimada: enMeses(1) };
+  }
+
+  // Sin excedente mensual el saldo no crece más: la meta no llega nunca.
   if (neto.lte(0)) {
     return { ...base, meses: null, alcanzada: false, inalcanzable: true, fechaEstimada: null };
   }
 
-  const meses = Math.ceil(faltante.div(neto).toNumber());
-  const { anio, mes } = mesActual();
-  const fecha = new Date(Date.UTC(anio, mes + meses, 1));
+  const meses = 1 + Math.ceil(meta.minus(cierreMes).div(neto).toNumber());
 
   return {
     ...base,
     meses,
     alcanzada: false,
     inalcanzable: false,
-    fechaEstimada: fecha.toISOString(),
+    fechaEstimada: enMeses(meses),
   };
 }

@@ -6,8 +6,16 @@
 //
 // Todo el sistema es en dólares: no hay tipo Moneda.
 
-export const TIPOS_MOVIMIENTO = ["INGRESO_EXTRA", "GASTO_DIARIO", "VENTA"] as const;
+export const TIPOS_MOVIMIENTO = ["SALARIO", "INGRESO_EXTRA", "GASTO_DIARIO", "VENTA"] as const;
 export type TipoMovimiento = (typeof TIPOS_MOVIMIENTO)[number];
+
+/// Un SALARIO es el cobro de un INGRESO_FIJO y siempre lleva `recurrenteId`:
+/// sin ese vínculo no habría cómo saber que ese fijo ya ocurrió este mes.
+export const TIPO_COBRO_FIJO = "SALARIO" satisfies TipoMovimiento;
+
+/// El pago de un GASTO_FIJO también se registra vinculado, pero no necesita
+/// un tipo propio: es un gasto como cualquier otro y `recurrenteId` lo marca.
+export const TIPO_PAGO_FIJO = "GASTO_DIARIO" satisfies TipoMovimiento;
 
 export const TIPOS_RECURRENTE = ["INGRESO_FIJO", "GASTO_FIJO"] as const;
 export type TipoRecurrente = (typeof TIPOS_RECURRENTE)[number];
@@ -16,6 +24,7 @@ export const AMBITOS = ["INGRESO", "GASTO"] as const;
 export type Ambito = (typeof AMBITOS)[number];
 
 export const ETIQUETAS_TIPO_MOVIMIENTO: Record<TipoMovimiento, string> = {
+  SALARIO: "Salario",
   INGRESO_EXTRA: "Ingreso extra",
   GASTO_DIARIO: "Gasto diario",
   VENTA: "Venta",
@@ -28,7 +37,7 @@ export const ETIQUETAS_TIPO_RECURRENTE: Record<TipoRecurrente, string> = {
 
 /// Los únicos movimientos que suman. El resto resta.
 export function esIngreso(tipo: string): boolean {
-  return tipo === "INGRESO_EXTRA";
+  return tipo === "INGRESO_EXTRA" || tipo === "SALARIO";
 }
 
 /// El ámbito de categoría que corresponde a un tipo de movimiento.

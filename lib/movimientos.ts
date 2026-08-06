@@ -20,6 +20,8 @@ export type EntradaMovimiento = {
   monto: NumeroEntrada;
   motivo?: string | null;
   categoriaId?: string | null;
+  /// El fijo que originó este movimiento, si lo hay.
+  recurrenteId?: string | null;
 };
 
 export type MovimientoValidado = {
@@ -28,6 +30,7 @@ export type MovimientoValidado = {
   monto: Prisma.Decimal;
   motivo: string | null;
   categoriaId: string | null;
+  recurrenteId: string | null;
 };
 
 export class ErrorValidacion extends Error {
@@ -59,11 +62,19 @@ export function validarMovimiento(entrada: EntradaMovimiento): MovimientoValidad
     throw new ErrorValidacion("El motivo es obligatorio en una venta.", "motivo");
   }
 
+  const recurrenteId = entrada.recurrenteId?.trim() || null;
+  // Sin el vínculo, un salario sería indistinguible de un ingreso extra y el
+  // fijo seguiría contándose como pendiente: es dinero contado dos veces.
+  if (entrada.tipo === "SALARIO" && !recurrenteId) {
+    throw new ErrorValidacion("Elige de cuál ingreso fijo es este salario.", "recurrenteId");
+  }
+
   return {
     tipo: entrada.tipo,
     fecha: entrada.fecha,
     monto: monto.toDecimalPlaces(2),
     motivo,
     categoriaId: entrada.categoriaId ?? null,
+    recurrenteId,
   };
 }

@@ -4,7 +4,12 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { ErrorValidacion, validarMovimiento } from "@/lib/movimientos";
 import { validarRecurrente } from "@/lib/recurrentes";
-import { esTipoMovimiento, esTipoRecurrente } from "@/lib/tipos";
+import {
+  esTipoMovimiento,
+  esTipoRecurrente,
+  TIPO_COBRO_FIJO,
+  TIPO_PAGO_FIJO,
+} from "@/lib/tipos";
 import type { EstadoFormulario } from "@/lib/estado-formulario";
 
 /// Las fechas del <input type="date"> vienen como "YYYY-MM-DD" sin huso.
@@ -60,13 +65,33 @@ export async function crearMovimiento(
     }
 
     const categoriaId = texto(formData, "categoriaId") || null;
+    const recurrenteId = texto(formData, "recurrenteId") || null;
+
+    // Un salario tiene que apuntar a un ingreso fijo que exista de verdad: es
+    // ese vínculo el que lo saca de lo pendiente del mes. Si no se comprueba,
+    // un id inventado lo dejaría contado dos veces.
+    let fijo = null;
+    if (recurrenteId) {
+      fijo = await prisma.recurrente.findUnique({
+        where: { id: recurrenteId },
+        select: { nombre: true, tipo: true },
+      });
+      if (!fijo) {
+        throw new ErrorValidacion("Ese ingreso fijo ya no existe.", "recurrenteId");
+      }
+      if (tipo === TIPO_COBRO_FIJO && fijo.tipo !== "INGRESO_FIJO") {
+        throw new ErrorValidacion("Eso no es un ingreso fijo.", "recurrenteId");
+      }
+    }
 
     const datos = validarMovimiento({
       tipo,
       fecha: fechaDesdeInput(formData.get("fecha")),
       monto: montoTexto,
-      motivo: texto(formData, "motivo"),
+      // Sin motivo propio, el nombre del fijo dice más que un guion.
+      motivo: texto(formData, "motivo") || fijo?.nombre || "",
       categoriaId,
+      recurrenteId,
     });
 
     await prisma.movimiento.create({ data: datos });
@@ -119,6 +144,67 @@ export async function crearRecurrente(
   } catch (e) {
     return manejarError(e);
   }
+}
+
+/**
+ * Registra una ocurrencia de un fijo: el salario que acabas de cobrar, o el
+ * gasto fijo que acabas de pagar.
+ *
+ * El movimiento queda vinculado al fijo (`recurrenteId`), que es lo que hace
+ * que deje de figurar como pendiente del mes en vez de sumarse dos veces —
+ * una en el saldo real y otra como algo que todavía va a ocurrir.
+ *
+ * El monto es el teórico del fijo. Si cobraste distinto, el registro rápido del
+ * dashboard permite ajustarlo antes de guardar.
+ */
+export async function marcarFijoOcurrido(formData: FormData): Promise<void> {
+  const id = texto(formData, "id");
+  if (!id) return;
+
+  const fijo = await prisma.recurrente.findUnique({
+    where: { id },
+    select: { nombre: true, tipo: true, monto: true, categoriaId: true },
+  });
+  if (!fijo) return;
+
+  const hoy = new Date();
+  await prisma.movimiento.create({
+    data: {
+      tipo: fijo.tipo === "INGRESO_FIJO" ? TIPO_COBRO_FIJO : TIPO_PAGO_FIJO,
+      // Mediodía UTC, igual que las fechas del formulario: así el movimiento
+      // no se corre de día ni de mes por el huso horario.
+      fecha: new Date(
+        Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth(), hoy.getUTCDate(), 12),
+      ),
+      monto: fijo.monto,
+      motivo: fijo.nombre,
+      categoriaId: fijo.categoriaId,
+      recurrenteId: id,
+    },
+  });
+
+  revalidarTodo();
+}
+
+/// Borra la última ocurrencia registrada de un fijo en el mes en curso, para
+/// deshacer un "marcar como cobrado" hecho por error sin ir a /movimientos.
+export async function deshacerFijoOcurrido(formData: FormData): Promise<void> {
+  const id = texto(formData, "id");
+  if (!id) return;
+
+  const hoy = new Date();
+  const desde = new Date(Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth(), 1));
+  const hasta = new Date(Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth() + 1, 1));
+
+  const ultimo = await prisma.movimiento.findFirst({
+    where: { recurrenteId: id, fecha: { gte: desde, lt: hasta } },
+    orderBy: [{ fecha: "desc" }, { creadoEn: "desc" }],
+    select: { id: true },
+  });
+  if (!ultimo) return;
+
+  await prisma.movimiento.delete({ where: { id: ultimo.id } });
+  revalidarTodo();
 }
 
 export async function alternarRecurrente(formData: FormData): Promise<void> {

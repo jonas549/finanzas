@@ -35,12 +35,21 @@ export default async function PaginaProyeccion({
       <div>
         <h1 className="text-xl font-semibold tracking-tight">Proyección</h1>
         <p className="mt-1 text-sm text-suave">
-          Asume que sólo ocurren los fijos activos. Los gastos sueltos no entran.
+          Asume que sólo ocurren los fijos activos. Los gastos sueltos no entran. Del mes en curso
+          se cuenta sólo lo que falta: lo ya cobrado o pagado vive en el saldo actual.
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Cifra rotulo="Saldo actual" valor={datos.saldoActual} />
+        <Cifra
+          rotulo="Cierre de este mes"
+          valor={datos.saldoCierreMes}
+          tono="auto"
+          detalle={`Falta cobrar ${moneda(datos.pendiente.ingresos)} y pagar ${moneda(
+            datos.pendiente.gastos,
+          )}`}
+        />
         <Cifra
           rotulo="Neto mensual"
           valor={datos.fijos.neto}
@@ -166,7 +175,16 @@ export default async function PaginaProyeccion({
               </tr>
               {datos.filas.map((f) => (
                 <tr key={`${f.anio}-${f.mes}`}>
-                  <td className="py-2.5 pr-3 capitalize">{f.etiqueta}</td>
+                  <td className="py-2.5 pr-3 capitalize">
+                    {f.etiqueta}
+                    {/* El mes en curso muestra lo que le queda por ocurrir, no
+                        el fijo completo: lo ya cobrado está en el saldo. */}
+                    {f.enCurso && (
+                      <span className="ml-2 text-xs normal-case text-suave">
+                        lo que falta del mes
+                      </span>
+                    )}
+                  </td>
                   <td className="cifra py-2.5 pr-3 text-right text-positivo">
                     {moneda(f.ingresos)}
                   </td>

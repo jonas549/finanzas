@@ -6,6 +6,7 @@ import { EtiquetaTipo, Tarjeta, Vacio } from "@/components/ui";
 import { listarCategorias, listarMovimientos } from "@/lib/consultas";
 import { fechaLarga, moneda, monedaConSigno } from "@/lib/formato";
 import {
+  esIngreso,
   ETIQUETAS_TIPO_MOVIMIENTO,
   esTipoMovimiento,
   TIPOS_MOVIMIENTO,
@@ -179,7 +180,7 @@ export default async function PaginaMovimientos({
               </thead>
               <tbody className="divide-y divide-borde">
                 {listado.items.map((m) => {
-                  const ingreso = m.tipo === "INGRESO_EXTRA";
+                  const ingreso = esIngreso(m.tipo);
                   return (
                     <tr key={m.id}>
                       <td className="whitespace-nowrap py-2.5 pr-3 text-suave">

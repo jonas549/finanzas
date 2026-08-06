@@ -87,6 +87,9 @@ model Recurrente {
   categoriaId String?
   categoria   Categoria? @relation(fields: [categoriaId], references: [id], onDelete: SetNull)
 
+  /// Los cobros/pagos ya registrados de este fijo. Ver Movimiento.recurrenteId.
+  movimientos Movimiento[]
+
   creadoEn      DateTime @default(now())
   actualizadoEn DateTime @updatedAt
 
@@ -101,6 +104,7 @@ model Recurrente {
 /// Todo evento puntual de dinero. `monto` es siempre positivo; el signo lo
 /// determina `tipo`:
 ///
+///   SALARIO       -> suma al saldo (cobro de un ingreso fijo)
 ///   INGRESO_EXTRA -> suma al saldo
 ///   GASTO_DIARIO  -> resta del saldo
 ///   VENTA         -> resta del saldo (motivo obligatorio)
@@ -110,7 +114,7 @@ model Recurrente {
 model Movimiento {
   id String @id @default(cuid())
 
-  /// "INGRESO_EXTRA" | "GASTO_DIARIO" | "VENTA"
+  /// "SALARIO" | "INGRESO_EXTRA" | "GASTO_DIARIO" | "VENTA"
   tipo  String
   fecha DateTime
 
@@ -123,10 +127,23 @@ model Movimiento {
   categoriaId String?
   categoria   Categoria? @relation(fields: [categoriaId], references: [id], onDelete: SetNull)
 
+  /// Cuando este movimiento ES el cobro (o el pago) de un fijo, apunta a él.
+  ///
+  /// Es la pieza que evita contar dos veces ese fijo en el mes en curso: el
+  /// dinero ya entró y vive en el saldo, así que lo que queda por ocurrir este
+  /// mes se calcula descontando estos movimientos. Ver `pendienteDelMes` en
+  /// lib/consultas.ts. Obligatorio en SALARIO (validado en la app).
+  ///
+  /// SetNull y no Cascade: si se borra el fijo, el dinero cobrado sigue siendo
+  /// real y no puede desaparecer del saldo.
+  recurrenteId String?
+  recurrente   Recurrente? @relation(fields: [recurrenteId], references: [id], onDelete: SetNull)
+
   creadoEn      DateTime @default(now())
   actualizadoEn DateTime @updatedAt
 
   @@index([fecha])
   @@index([tipo, fecha])
   @@index([categoriaId, fecha])
+  @@index([recurrenteId, fecha])
 }

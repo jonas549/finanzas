@@ -58,6 +58,7 @@ export function Cifra({
 }
 
 const ESTILOS_ETIQUETA: Record<string, string> = {
+  SALARIO: "bg-positivo-fondo text-positivo",
   INGRESO_EXTRA: "bg-positivo-fondo text-positivo",
   GASTO_DIARIO: "bg-negativo-fondo text-negativo",
   VENTA: "bg-negativo-fondo text-negativo",

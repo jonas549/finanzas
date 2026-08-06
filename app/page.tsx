@@ -4,12 +4,13 @@ import { FormularioMovimiento } from "@/components/FormularioMovimiento";
 import {
   listarCategorias,
   listarMovimientos,
+  listarRecurrentes,
   mesActual,
   resumenMes,
   saldoActual,
 } from "@/lib/consultas";
 import { fechaCorta, moneda, monedaConSigno, porcentaje } from "@/lib/formato";
-import { ETIQUETAS_TIPO_MOVIMIENTO, type TipoMovimiento } from "@/lib/tipos";
+import { esIngreso, ETIQUETAS_TIPO_MOVIMIENTO, type TipoMovimiento } from "@/lib/tipos";
 
 // Lee la base en cada request: sin esto Next prerenderiza la página en el
 // build y el saldo se queda congelado.
@@ -17,12 +18,15 @@ export const dynamic = "force-dynamic";
 
 export default async function Dashboard() {
   const { anio, mes } = mesActual();
-  const [saldo, resumen, categorias, ultimos] = await Promise.all([
+  const [saldo, resumen, categorias, recurrentes, ultimos] = await Promise.all([
     saldoActual(),
     resumenMes(anio, mes),
     listarCategorias(),
+    listarRecurrentes(anio, mes),
     listarMovimientos({ porPagina: 8 }),
   ]);
+
+  const ingresosFijos = recurrentes.filter((r) => r.tipo === "INGRESO_FIJO" && r.activo);
 
   return (
     <div className="space-y-6">
@@ -54,7 +58,7 @@ export default async function Dashboard() {
 
       <div className="grid gap-6 lg:grid-cols-[3fr_2fr]">
         <Tarjeta titulo="Registro rápido">
-          <FormularioMovimiento categorias={categorias} />
+          <FormularioMovimiento categorias={categorias} ingresosFijos={ingresosFijos} />
         </Tarjeta>
 
         <Tarjeta titulo="Gastos por categoría">
@@ -94,7 +98,7 @@ export default async function Dashboard() {
         ) : (
           <ul className="divide-y divide-borde">
             {ultimos.items.map((m) => {
-              const ingreso = m.tipo === "INGRESO_EXTRA";
+              const ingreso = esIngreso(m.tipo);
               return (
                 <li key={m.id} className="flex items-center justify-between gap-4 py-2.5">
                   <div className="min-w-0">
